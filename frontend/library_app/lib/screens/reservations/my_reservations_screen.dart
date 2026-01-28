@@ -167,15 +167,124 @@ class _MyReservationsScreenState extends State<MyReservationsScreen> {
       );
     }
 
+    // Подсчет статистики
+    final totalReservations = _reservations.length;
+    final activeReservations = _reservations
+        .where((r) => r.isPending || r.isConfirmed || r.isTaken)
+        .length;
+    final returnedBooks = _reservations.where((r) => r.isReturned).length;
+
     return RefreshIndicator(
       onRefresh: _loadReservations,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _reservations.length,
+        itemCount: _reservations.length + 1, // +1 для карточек статистики
         itemBuilder: (context, index) {
-          final reservation = _reservations[index];
+          // Первый элемент - статистика
+          if (index == 0) {
+            return Column(
+              children: [
+                _buildStatisticsSection(
+                  totalReservations,
+                  activeReservations,
+                  returnedBooks,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Мои бронирования',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            );
+          }
+
+          // Остальные элементы - карточки бронирований
+          final reservation = _reservations[index - 1];
           return _buildReservationCard(reservation);
         },
+      ),
+    );
+  }
+
+  Widget _buildStatisticsSection(
+    int total,
+    int active,
+    int returned,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.library_books,
+            iconColor: Colors.blue,
+            title: 'Всего',
+            value: total.toString(),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.pending_actions,
+            iconColor: Colors.orange,
+            title: 'Активные',
+            value: active.toString(),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            icon: Icons.check_circle,
+            iconColor: Colors.green,
+            title: 'Возвращено',
+            value: returned.toString(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [iconColor.withOpacity(0.1), iconColor.withOpacity(0.05)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: iconColor.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 32, color: iconColor),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: iconColor,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -216,6 +325,66 @@ class _MyReservationsScreenState extends State<MyReservationsScreen> {
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[600],
+                ),
+              ),
+            ],
+            // Планируемое время получения
+            if (reservation.pickupDate != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green[200]!),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.access_time, color: Colors.green[700], size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Планируемое получение:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(Icons.calendar_today, size: 14, color: Colors.grey[700]),
+                              const SizedBox(width: 4),
+                              Text(
+                                _formatDate(reservation.pickupDate!),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[800],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (reservation.pickupTime != null) ...[
+                                const SizedBox(width: 12),
+                                Icon(Icons.schedule, size: 14, color: Colors.grey[700]),
+                                const SizedBox(width: 4),
+                                Text(
+                                  reservation.pickupTime!.substring(0, 5),
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[800],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -275,6 +444,9 @@ class _MyReservationsScreenState extends State<MyReservationsScreen> {
                 ),
               ),
             ],
+            const SizedBox(height: 12),
+            // Timeline визуализация
+            _buildTimeline(reservation),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -351,6 +523,118 @@ class _MyReservationsScreenState extends State<MyReservationsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTimeline(Reservation reservation) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Статус бронирования:',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _buildTimelineStep(
+                icon: Icons.add_circle,
+                label: 'Создано',
+                isCompleted: true,
+                isActive: reservation.isPending && !reservation.isConfirmed,
+                color: Colors.blue,
+              ),
+              _buildTimelineConnector(isActive: reservation.isConfirmed || reservation.isTaken || reservation.isReturned),
+              _buildTimelineStep(
+                icon: Icons.check_circle,
+                label: 'Подтверждено',
+                isCompleted: reservation.isConfirmed || reservation.isTaken || reservation.isReturned,
+                isActive: reservation.isConfirmed && !reservation.isTaken,
+                color: Colors.green,
+              ),
+              _buildTimelineConnector(isActive: reservation.isTaken || reservation.isReturned),
+              _buildTimelineStep(
+                icon: Icons.menu_book,
+                label: 'Получено',
+                isCompleted: reservation.isTaken || reservation.isReturned,
+                isActive: reservation.isTaken && !reservation.isReturned,
+                color: Colors.purple,
+              ),
+              _buildTimelineConnector(isActive: reservation.isReturned),
+              _buildTimelineStep(
+                icon: Icons.assignment_turned_in,
+                label: 'Возвращено',
+                isCompleted: reservation.isReturned,
+                isActive: reservation.isReturned,
+                color: Colors.teal,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineStep({
+    required IconData icon,
+    required String label,
+    required bool isCompleted,
+    required bool isActive,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isCompleted || isActive ? color : Colors.grey[300],
+              border: Border.all(
+                color: isActive ? color : Colors.transparent,
+                width: 3,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: isCompleted || isActive ? Colors.white : Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+              color: isCompleted || isActive ? color : Colors.grey[600],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineConnector({required bool isActive}) {
+    return Container(
+      width: 20,
+      height: 2,
+      margin: const EdgeInsets.only(bottom: 30),
+      color: isActive ? Colors.green : Colors.grey[300],
     );
   }
 

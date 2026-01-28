@@ -280,14 +280,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ],
           const Divider(),
           ListTile(
-            leading: Icon(Icons.info_outline, color: isDark ? Colors.grey[400] : null),
-            title: const Text('О приложении'),
-            onTap: () {
-              Navigator.pop(context);
-              _showAboutDialog();
-            },
-          ),
-          ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('Выйти', style: TextStyle(color: Colors.red)),
             onTap: () {
@@ -297,31 +289,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ],
       ),
-    );
-  }
-
-  void _showAboutDialog() {
-    showAboutDialog(
-      context: context,
-      applicationName: 'Гибридная Библиотека',
-      applicationVersion: '1.0.0',
-      applicationIcon: Container(
-        width: 50,
-        height: 50,
-        decoration: BoxDecoration(
-          color: Theme.of(context).primaryColor.withOpacity(0.1),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          Icons.library_books,
-          color: Theme.of(context).primaryColor,
-        ),
-      ),
-      children: const [
-        Text('Современное приложение для управления библиотекой'),
-        SizedBox(height: 8),
-        Text('Разработано для Astana IT University'),
-      ],
     );
   }
 

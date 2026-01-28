@@ -1,0 +1,23 @@
+# Основной фреймворк
+Django>=6.0,<7.0
+
+# Django REST Framework и JWT
+djangorestframework>=3.14
+# JWT для DRF (совместимо с Python 3.14)
+djangorestframework-simplejwt==5.5.1
+
+
+# CORS для Flutter / фронтенда
+django-cors-headers>=4.0
+
+# Фильтры для DRF
+django-filter>=23.0
+
+# PostgreSQL драйвер
+psycopg2-binary>=2.9
+
+# Работа с изображениями (если есть Media)
+Pillow>=10.0
+
+# Работа с .env (если используешь в будущем)
+python-dotenv>=1.1

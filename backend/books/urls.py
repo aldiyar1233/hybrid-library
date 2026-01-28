@@ -5,6 +5,8 @@ urlpatterns = [
     # Жанры
     path('genres/', views.GenreListView.as_view(), name='genre-list'),
     path('genres/create/', views.GenreCreateView.as_view(), name='genre-create'),
+    path('genres/<int:pk>/update/', views.GenreUpdateView.as_view(), name='genre-update'),
+    path('genres/<int:pk>/delete/', views.GenreDeleteView.as_view(), name='genre-delete'),
     
     # Книги
     path('books/', views.BookListView.as_view(), name='book-list'),

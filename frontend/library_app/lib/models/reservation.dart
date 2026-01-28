@@ -13,6 +13,8 @@ class Reservation {
   final DateTime? confirmedDate;
   final DateTime? takenDate;
   final DateTime? returnDate;
+  final DateTime? pickupDate;
+  final String? pickupTime;
   final String? userComment;
   final String? adminComment;
 
@@ -28,6 +30,8 @@ class Reservation {
     this.confirmedDate,
     this.takenDate,
     this.returnDate,
+    this.pickupDate,
+    this.pickupTime,
     this.userComment,
     this.adminComment,
   });
@@ -52,9 +56,13 @@ class Reservation {
       takenDate: json['taken_date'] != null 
           ? DateTime.parse(json['taken_date']) 
           : null,
-      returnDate: json['return_date'] != null 
-          ? DateTime.parse(json['return_date']) 
+      returnDate: json['return_date'] != null
+          ? DateTime.parse(json['return_date'])
           : null,
+      pickupDate: json['pickup_date'] != null
+          ? DateTime.parse(json['pickup_date'])
+          : null,
+      pickupTime: json['pickup_time'],
       userComment: json['user_comment'],
       adminComment: json['admin_comment'],
     );

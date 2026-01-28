@@ -11,6 +11,9 @@ class ApiService {
 
   final StorageService _storage = StorageService();
 
+  // Timeout для всех HTTP запросов
+  static const Duration _requestTimeout = Duration(seconds: 30);
+
   Future<Map<String, String>> _getHeaders() async {
     final token = await _storage.getToken();
     
@@ -30,21 +33,23 @@ class ApiService {
   Future<http.Response> get(String endpoint) async {
     final headers = await _getHeaders();
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
-    
+
     try {
       LoggerService.api(method: 'GET', endpoint: endpoint);
-      
-      final response = await http.get(url, headers: headers);
-      
+
+      final response = await http
+          .get(url, headers: headers)
+          .timeout(_requestTimeout);
+
       LoggerService.api(
         method: 'GET',
         endpoint: endpoint,
         statusCode: response.statusCode,
-        response: response.statusCode == 200 
-          ? 'Success' 
+        response: response.statusCode == 200
+          ? 'Success'
           : response.body.substring(0, response.body.length > 200 ? 200 : response.body.length),
       );
-      
+
       return response;
     } catch (e) {
       LoggerService.error('Ошибка GET запроса: $endpoint', e);
@@ -55,20 +60,22 @@ class ApiService {
   Future<http.Response> post(String endpoint, Map<String, dynamic> data) async {
     final headers = await _getHeaders();
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
-    
+
     try {
       LoggerService.api(
         method: 'POST',
         endpoint: endpoint,
         data: data,
       );
-      
-      final response = await http.post(
-        url,
-        headers: headers,
-        body: jsonEncode(data),
-      );
-      
+
+      final response = await http
+          .post(
+            url,
+            headers: headers,
+            body: jsonEncode(data),
+          )
+          .timeout(_requestTimeout);
+
       LoggerService.api(
         method: 'POST',
         endpoint: endpoint,
@@ -77,7 +84,7 @@ class ApiService {
           ? 'Success'
           : response.body,
       );
-      
+
       return response;
     } catch (e) {
       LoggerService.error('Ошибка POST запроса: $endpoint', e);
@@ -88,22 +95,24 @@ class ApiService {
   Future<http.Response> put(String endpoint, Map<String, dynamic> data) async {
     final headers = await _getHeaders();
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
-    
+
     try {
       LoggerService.api(method: 'PUT', endpoint: endpoint, data: data);
-      
-      final response = await http.put(
-        url,
-        headers: headers,
-        body: jsonEncode(data),
-      );
-      
+
+      final response = await http
+          .put(
+            url,
+            headers: headers,
+            body: jsonEncode(data),
+          )
+          .timeout(_requestTimeout);
+
       LoggerService.api(
         method: 'PUT',
         endpoint: endpoint,
         statusCode: response.statusCode,
       );
-      
+
       return response;
     } catch (e) {
       LoggerService.error('Ошибка PUT запроса: $endpoint', e);
@@ -114,18 +123,20 @@ class ApiService {
   Future<http.Response> delete(String endpoint) async {
     final headers = await _getHeaders();
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
-    
+
     try {
       LoggerService.api(method: 'DELETE', endpoint: endpoint);
-      
-      final response = await http.delete(url, headers: headers);
-      
+
+      final response = await http
+          .delete(url, headers: headers)
+          .timeout(_requestTimeout);
+
       LoggerService.api(
         method: 'DELETE',
         endpoint: endpoint,
         statusCode: response.statusCode,
       );
-      
+
       return response;
     } catch (e) {
       LoggerService.error('Ошибка DELETE запроса: $endpoint', e);

@@ -72,47 +72,62 @@ class ReservationSerializer(serializers.ModelSerializer):
     user_details = UserSerializer(source='user', read_only=True)
     book_details = BookListSerializer(source='book', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    
+
     class Meta:
         model = Reservation
-        fields = ('id', 'user', 'user_details', 'book', 'book_details', 
-                  'status', 'status_display', 'reservation_date', 
+        fields = ('id', 'user', 'user_details', 'book', 'book_details',
+                  'status', 'status_display', 'reservation_date',
                   'confirmed_date', 'taken_date', 'return_date',
+                  'pickup_date', 'pickup_time',
                   'user_comment', 'admin_comment')
-        read_only_fields = ('id', 'reservation_date', 'confirmed_date', 
+        read_only_fields = ('id', 'reservation_date', 'confirmed_date',
                            'taken_date', 'return_date')
 
 class ReservationCreateSerializer(serializers.ModelSerializer):
+    pickup_date = serializers.DateField(required=True, allow_null=False)
+    pickup_time = serializers.TimeField(required=True, allow_null=False)
+
     class Meta:
         model = Reservation
-        fields = ('book', 'user_comment')
-    
+        fields = ('book', 'user_comment', 'pickup_date', 'pickup_time')
+
     def validate_book(self, value):
         if value.status != 'available':
             raise serializers.ValidationError("Эта книга недоступна для бронирования.")
         return value
-    
+
+    def validate(self, attrs):
+        # ✅ ЖЕСТКАЯ ПРОВЕРКА: нельзя без даты/времени
+        if not attrs.get('pickup_date'):
+            raise serializers.ValidationError({'pickup_date': 'Укажите дату получения'})
+        if not attrs.get('pickup_time'):
+            raise serializers.ValidationError({'pickup_time': 'Укажите время получения'})
+        return attrs
+
     def create(self, validated_data):
         user = self.context['request'].user
         book = validated_data['book']
-        
+
         active_reservation = Reservation.objects.filter(
             user=user,
             book=book,
             status__in=['pending', 'confirmed', 'taken']
         ).exists()
-        
+
         if active_reservation:
             raise serializers.ValidationError("У вас уже есть активное бронирование этой книги.")
-        
+
+        # validated_data уже гарантированно содержит pickup_date/time
         reservation = Reservation.objects.create(
             user=user,
             book=book,
             user_comment=validated_data.get('user_comment', ''),
+            pickup_date=validated_data['pickup_date'],
+            pickup_time=validated_data['pickup_time'],
             status='pending'
         )
-        
+
         book.status = 'reserved'
         book.save()
-        
+
         return reservation

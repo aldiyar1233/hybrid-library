@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:http/http.dart' as http;
-import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../../services/logger_service.dart';
 import '../../widgets/loading_widget.dart';
 
@@ -23,9 +22,8 @@ class PdfReaderScreen extends StatefulWidget {
   State<PdfReaderScreen> createState() => _PdfReaderScreenState();
 }
 
-class _PdfReaderScreenState extends State<PdfReaderScreen> 
+class _PdfReaderScreenState extends State<PdfReaderScreen>
     with TickerProviderStateMixin {
-  
   // Контроллеры
   PdfController? _pdfController;
   final TextEditingController _pageInputController = TextEditingController();
@@ -33,7 +31,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   final TextEditingController _noteController = TextEditingController();
   late AnimationController _toolbarAnimationController;
   late AnimationController _fabAnimationController;
-  
+
   // Состояния
   bool _isLoading = true;
   String? _error;
@@ -46,16 +44,22 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   bool _isSearching = false;
   bool _showThumbnails = false;
   bool _showOutline = false;
-  
+
+  // Новые настройки
+  double _brightness = 1.0; // 0.0 - 1.0
+  String _colorMode = 'normal'; // 'normal', 'night', 'sepia'
+  List<int>? _searchResults;
+  int _currentSearchIndex = -1;
+
   // Закладки и заметки
   List<int> _bookmarks = [];
   Map<int, String> _pageNotes = {};
-  
+
   // Таймеры
   Timer? _toolbarTimer;
   Timer? _pageIndicatorTimer;
   bool _showPageIndicator = false;
-  
+
   // История навигации
   List<int> _navigationHistory = [];
   int _historyIndex = -1;
@@ -63,21 +67,20 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   @override
   void initState() {
     super.initState();
-    
+
     _toolbarAnimationController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
+
     _fabAnimationController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
-    _loadPdf();
-    _loadSavedData();
+
+    _loadPdf(); // Внутри вызывается _loadSavedData()
     _startToolbarTimer();
-    
+
     // Скрываем системный UI для полноэкранного режима
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.immersiveSticky,
@@ -94,13 +97,13 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     _fabAnimationController.dispose();
     _toolbarTimer?.cancel();
     _pageIndicatorTimer?.cancel();
-    
+
     // Возвращаем системный UI
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    
+
     super.dispose();
   }
 
@@ -112,22 +115,26 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
     try {
       LoggerService.info('Загрузка PDF: ${widget.bookTitle}');
-      
+
+      // Загружаем сохраненные данные перед загрузкой PDF
+      await _loadSavedData();
+
       final response = await http.get(Uri.parse(widget.pdfUrl));
-      
+
       if (response.statusCode == 200) {
         final document = await PdfDocument.openData(response.bodyBytes);
-        
+
         setState(() {
           _pdfController = PdfController(
             document: Future.value(document),
-            initialPage: _currentPage,
+            initialPage: _currentPage, // Используется сохраненная страница
           );
           _totalPages = document.pagesCount;
           _isLoading = false;
         });
-        
-        LoggerService.info('PDF загружен: $_totalPages страниц');
+
+        LoggerService.info(
+            'PDF загружен: $_totalPages страниц, открыта страница $_currentPage');
       } else {
         throw Exception('HTTP ${response.statusCode}');
       }
@@ -145,14 +152,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
       _currentPage = page;
       _showPageIndicator = true;
     });
-    
+
     // Добавляем в историю навигации
     if (_historyIndex < _navigationHistory.length - 1) {
       _navigationHistory = _navigationHistory.sublist(0, _historyIndex + 1);
     }
     _navigationHistory.add(page);
     _historyIndex = _navigationHistory.length - 1;
-    
+
     // Показываем индикатор страницы
     _pageIndicatorTimer?.cancel();
     _pageIndicatorTimer = Timer(const Duration(seconds: 2), () {
@@ -160,7 +167,10 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
         setState(() => _showPageIndicator = false);
       }
     });
-    
+
+    // Сохраняем последнюю страницу
+    _saveLastPage();
+
     LoggerService.debug('Страница изменена: $page/$_totalPages');
   }
 
@@ -177,7 +187,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     setState(() {
       _isToolbarVisible = !_isToolbarVisible;
     });
-    
+
     if (_isToolbarVisible) {
       _toolbarAnimationController.forward();
       _fabAnimationController.forward();
@@ -197,7 +207,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
   void _showGoToPageDialog() {
     _pageInputController.text = _currentPage.toString();
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -328,7 +338,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
   void _addNote() {
     _noteController.text = _pageNotes[_currentPage] ?? '';
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -368,7 +378,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
 
   void _showNotes() {
     final notesPages = _pageNotes.keys.toList()..sort();
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -447,32 +457,299 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     );
   }
 
-  Future<void> _sharePdf() async {
-    try {
-      _showSnackBar('Подготовка к отправке...');
-      
-      final response = await http.get(Uri.parse(widget.pdfUrl));
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/${widget.bookTitle}.pdf');
-      await file.writeAsBytes(response.bodyBytes);
-      
-      await Share.shareXFiles(
-        [XFile(file.path)],
-        text: 'Книга: ${widget.bookTitle}',
-      );
-      
-      LoggerService.userAction('PDF отправлен', {'title': widget.bookTitle});
-    } catch (e) {
-      _showSnackBar('Ошибка отправки');
-      LoggerService.error('Ошибка отправки PDF', e);
-    }
-  }
-
   void _toggleNightMode() {
     setState(() {
       _isNightMode = !_isNightMode;
     });
-    _showSnackBar(_isNightMode ? 'Ночной режим включен' : 'Ночной режим выключен');
+    _showSnackBar(
+        _isNightMode ? 'Ночной режим включен' : 'Ночной режим выключен');
+  }
+
+  void _cycleColorMode() {
+    setState(() {
+      switch (_colorMode) {
+        case 'normal':
+          _colorMode = 'sepia';
+          _showSnackBar('Режим Сепия');
+          break;
+        case 'sepia':
+          _colorMode = 'night';
+          _showSnackBar('Ночной режим');
+          break;
+        case 'night':
+          _colorMode = 'normal';
+          _showSnackBar('Обычный режим');
+          break;
+      }
+    });
+  }
+
+  void _showSearchDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Переход на страницу'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _searchController,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Номер страницы (1-$_totalPages)',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.tag),
+              ),
+              onSubmitted: (_) {
+                Navigator.pop(context);
+                _searchInPdf();
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _searchInPdf();
+            },
+            child: const Text('Перейти'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBrightnessDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Настройки яркости'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.brightness_low),
+                  Expanded(
+                    child: Slider(
+                      value: _brightness,
+                      min: 0.3,
+                      max: 1.0,
+                      divisions: 14,
+                      label: '${(_brightness * 100).round()}%',
+                      onChanged: (value) {
+                        setDialogState(() => _brightness = value);
+                        setState(() => _brightness = value);
+                      },
+                    ),
+                  ),
+                  const Icon(Icons.brightness_high),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Яркость: ${(_brightness * 100).round()}%',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Закрыть'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _searchInPdf() async {
+    // Примечание: библиотека pdfx не поддерживает извлечение текста
+    // Это базовая реализация для перехода на страницу по номеру
+    if (_searchController.text.isEmpty) {
+      _showSnackBar('Введите номер страницы для перехода');
+      return;
+    }
+
+    final pageNum = int.tryParse(_searchController.text);
+    if (pageNum != null && pageNum >= 1 && pageNum <= _totalPages) {
+      _goToPage(pageNum);
+      _showSnackBar('Переход на страницу $pageNum');
+      setState(() {
+        _searchResults = [pageNum];
+        _currentSearchIndex = 0;
+      });
+    } else {
+      _showSnackBar('Введите корректный номер страницы (1-$_totalPages)');
+    }
+  }
+
+  void _nextSearchResult() {
+    if (_searchResults == null || _searchResults!.isEmpty) return;
+
+    setState(() {
+      _currentSearchIndex = (_currentSearchIndex + 1) % _searchResults!.length;
+    });
+    _goToPage(_searchResults![_currentSearchIndex]);
+    _showSnackBar(
+      'Результат ${_currentSearchIndex + 1} из ${_searchResults!.length}',
+    );
+  }
+
+  void _previousSearchResult() {
+    if (_searchResults == null || _searchResults!.isEmpty) return;
+
+    setState(() {
+      _currentSearchIndex = _currentSearchIndex - 1;
+      if (_currentSearchIndex < 0) {
+        _currentSearchIndex = _searchResults!.length - 1;
+      }
+    });
+    _goToPage(_searchResults![_currentSearchIndex]);
+    _showSnackBar(
+      'Результат ${_currentSearchIndex + 1} из ${_searchResults!.length}',
+    );
+  }
+
+  void _showThumbnailsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Предпросмотр страниц',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<PdfDocument?>(
+                future: _pdfController?.document,
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final document = snapshot.data!;
+
+                  return GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.7,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: _totalPages,
+                    itemBuilder: (context, index) {
+                      final pageNumber = index + 1;
+                      final isCurrentPage = pageNumber == _currentPage;
+
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context);
+                          _goToPage(pageNumber);
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: isCurrentPage
+                                  ? Theme.of(context).primaryColor
+                                  : Colors.grey[300]!,
+                              width: isCurrentPage ? 3 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: FutureBuilder<PdfPageImage?>(
+                                  future: document
+                                      .getPage(pageNumber)
+                                      .then((page) => page.render(
+                                            width: 200,
+                                            height: 300,
+                                            format: PdfPageImageFormat.png,
+                                          )),
+                                  builder: (context, imgSnapshot) {
+                                    if (!imgSnapshot.hasData) {
+                                      return const Center(
+                                        child: CircularProgressIndicator(),
+                                      );
+                                    }
+
+                                    return ClipRRect(
+                                      borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(8),
+                                      ),
+                                      child: Image.memory(
+                                        imgSnapshot.data!.bytes,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: isCurrentPage
+                                      ? Theme.of(context).primaryColor
+                                      : Colors.grey[200],
+                                  borderRadius: const BorderRadius.vertical(
+                                    bottom: Radius.circular(8),
+                                  ),
+                                ),
+                                child: Text(
+                                  '$pageNumber',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: isCurrentPage
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _zoom(bool zoomIn) {
@@ -489,7 +766,8 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
     setState(() {
       _isSinglePageMode = !_isSinglePageMode;
     });
-    _showSnackBar(_isSinglePageMode ? 'Одна страница' : 'Непрерывная прокрутка');
+    _showSnackBar(
+        _isSinglePageMode ? 'Одна страница' : 'Непрерывная прокрутка');
   }
 
   void _navigateBack() {
@@ -516,73 +794,161 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
   }
 
   Future<void> _loadSavedData() async {
-    // Здесь можно загрузить сохраненные закладки и заметки из SharedPreferences
-    // Для примера оставлю заглушку
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bookKey = _getBookKey();
+
+      // Загрузка закладок
+      final bookmarksJson = prefs.getString('${bookKey}_bookmarks');
+      if (bookmarksJson != null) {
+        final List<dynamic> decoded = jsonDecode(bookmarksJson);
+        setState(() {
+          _bookmarks = decoded.map((e) => e as int).toList();
+          _bookmarks.sort();
+        });
+        LoggerService.info('Загружено ${_bookmarks.length} закладок');
+      }
+
+      // Загрузка заметок
+      final notesJson = prefs.getString('${bookKey}_notes');
+      if (notesJson != null) {
+        final Map<String, dynamic> decoded = jsonDecode(notesJson);
+        setState(() {
+          _pageNotes = decoded
+              .map((key, value) => MapEntry(int.parse(key), value.toString()));
+        });
+        LoggerService.info('Загружено ${_pageNotes.length} заметок');
+      }
+
+      // Загрузка последней открытой страницы
+      final lastPage = prefs.getInt('${bookKey}_last_page');
+      if (lastPage != null && lastPage > 0) {
+        _currentPage = lastPage;
+        LoggerService.info('Восстановлена страница: $lastPage');
+      }
+    } catch (e) {
+      LoggerService.error('Ошибка загрузки данных PDF', e);
+    }
   }
 
   Future<void> _saveBookmarks() async {
-    // Сохранение закладок в SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bookKey = _getBookKey();
+      final bookmarksJson = jsonEncode(_bookmarks);
+      await prefs.setString('${bookKey}_bookmarks', bookmarksJson);
+      LoggerService.debug('Закладки сохранены: ${_bookmarks.length}');
+    } catch (e) {
+      LoggerService.error('Ошибка сохранения закладок', e);
+    }
   }
 
   Future<void> _saveNotes() async {
-    // Сохранение заметок в SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bookKey = _getBookKey();
+      // Конвертируем Map<int, String> в Map<String, String> для JSON
+      final notesForJson =
+          _pageNotes.map((key, value) => MapEntry(key.toString(), value));
+      final notesJson = jsonEncode(notesForJson);
+      await prefs.setString('${bookKey}_notes', notesJson);
+      LoggerService.debug('Заметки сохранены: ${_pageNotes.length}');
+    } catch (e) {
+      LoggerService.error('Ошибка сохранения заметок', e);
+    }
+  }
+
+  Future<void> _saveLastPage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bookKey = _getBookKey();
+      await prefs.setInt('${bookKey}_last_page', _currentPage);
+    } catch (e) {
+      LoggerService.error('Ошибка сохранения последней страницы', e);
+    }
+  }
+
+  String _getBookKey() {
+    // Используем хэш от URL для создания уникального ключа книги
+    return 'book_${widget.pdfUrl.hashCode.abs()}';
+  }
+
+  ColorFilter _getColorFilter() {
+    switch (_colorMode) {
+      case 'night':
+        // Ночной режим - инверсия цветов
+        return const ColorFilter.matrix(<double>[
+          -1, 0, 0, 0, 255, // Инверсия красного
+          0, -1, 0, 0, 255, // Инверсия зеленого
+          0, 0, -1, 0, 255, // Инверсия синего
+          0, 0, 0, 1, 0, // Альфа без изменений
+        ]);
+      case 'sepia':
+        // Сепия режим - теплые тона
+        return const ColorFilter.matrix(<double>[
+          0.393, 0.769, 0.189, 0, 0, // Красный
+          0.349, 0.686, 0.168, 0, 0, // Зеленый
+          0.272, 0.534, 0.131, 0, 0, // Синий
+          0, 0, 0, 1, 0, // Альфа
+        ]);
+      default:
+        // Обычный режим
+        return const ColorFilter.mode(
+          Colors.transparent,
+          BlendMode.multiply,
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Scaffold(
-      backgroundColor: _isNightMode 
-        ? Colors.black 
-        : (isDark ? const Color(0xFF111827) : Colors.white),
+      backgroundColor: _isNightMode
+          ? Colors.black
+          : (isDark ? const Color(0xFF111827) : Colors.white),
       body: Stack(
         children: [
           // PDF Viewer
           if (!_isLoading && _error == null)
             GestureDetector(
               onTap: _toggleToolbar,
-              child: ColorFiltered(
-                colorFilter: _isNightMode
-                  ? const ColorFilter.mode(
-                      Colors.amber,
-                      BlendMode.modulate,
-                    )
-                  : const ColorFilter.mode(
-                      Colors.transparent,
-                      BlendMode.multiply,
-                    ),
-                child: PdfView(
-                  controller: _pdfController!,
-                  onPageChanged: _onPageChanged,
-                  scrollDirection: _isSinglePageMode 
-                    ? Axis.horizontal 
-                    : Axis.vertical,
-                  pageSnapping: _isSinglePageMode,
-                  physics: const BouncingScrollPhysics(),
-                  builders: PdfViewBuilders<DefaultBuilderOptions>(
-                    options: const DefaultBuilderOptions(
-                      loaderSwitchDuration: Duration(milliseconds: 200),
-                    ),
-                    documentLoaderBuilder: (_) =>
-                      const Center(child: CircularProgressIndicator()),
-                    pageLoaderBuilder: (_) =>
-                      const Center(child: CircularProgressIndicator()),
-                    errorBuilder: (_, error) => Center(
-                      child: Text(
-                        'Ошибка: $error',
-                        style: const TextStyle(color: Colors.red),
+              child: Opacity(
+                opacity: _brightness,
+                child: ColorFiltered(
+                  colorFilter: _getColorFilter(),
+                  child: PdfView(
+                    controller: _pdfController!,
+                    onPageChanged: _onPageChanged,
+                    scrollDirection:
+                        _isSinglePageMode ? Axis.horizontal : Axis.vertical,
+                    pageSnapping: _isSinglePageMode,
+                    physics: const BouncingScrollPhysics(),
+                    builders: PdfViewBuilders<DefaultBuilderOptions>(
+                      options: const DefaultBuilderOptions(
+                        loaderSwitchDuration: Duration(milliseconds: 200),
+                      ),
+                      documentLoaderBuilder: (_) =>
+                          const Center(child: CircularProgressIndicator()),
+                      pageLoaderBuilder: (_) =>
+                          const Center(child: CircularProgressIndicator()),
+                      errorBuilder: (_, error) => Center(
+                        child: Text(
+                          'Ошибка: $error',
+                          style: const TextStyle(color: Colors.red),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          
+
           // Loading
           if (_isLoading)
             const Center(child: LoadingWidget(message: 'Загрузка PDF...')),
-          
+
           // Error
           if (_error != null)
             Center(
@@ -600,7 +966,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                 ],
               ),
             ),
-          
+
           // Top Toolbar
           AnimatedSlide(
             duration: const Duration(milliseconds: 200),
@@ -641,11 +1007,17 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                       IconButton(
                         icon: Icon(
                           _bookmarks.contains(_currentPage)
-                            ? Icons.bookmark
-                            : Icons.bookmark_border,
+                              ? Icons.bookmark
+                              : Icons.bookmark_border,
                           color: Colors.white,
                         ),
                         onPressed: _toggleBookmark,
+                      ),
+                      // Быстрый переход
+                      IconButton(
+                        icon: const Icon(Icons.numbers, color: Colors.white),
+                        onPressed: _showSearchDialog,
+                        tooltip: 'Переход на страницу',
                       ),
                       // Меню
                       PopupMenuButton<String>(
@@ -658,11 +1030,14 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                             case 'notes':
                               _showNotes();
                               break;
-                            case 'share':
-                              _sharePdf();
+                            case 'thumbnails':
+                              _showThumbnailsSheet();
                               break;
-                            case 'night':
-                              _toggleNightMode();
+                            case 'colorMode':
+                              _cycleColorMode();
+                              break;
+                            case 'brightness':
+                              _showBrightnessDialog();
                               break;
                             case 'mode':
                               _togglePageMode();
@@ -690,17 +1065,41 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                               ],
                             ),
                           ),
-                          PopupMenuItem(
-                            value: 'night',
+                          const PopupMenuItem(
+                            value: 'thumbnails',
                             child: Row(
                               children: [
-                                Icon(_isNightMode 
-                                  ? Icons.light_mode 
-                                  : Icons.dark_mode),
+                                Icon(Icons.grid_view_rounded),
+                                SizedBox(width: 12),
+                                Text('Предпросмотр'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'colorMode',
+                            child: Row(
+                              children: [
+                                Icon(_colorMode == 'night'
+                                    ? Icons.dark_mode
+                                    : _colorMode == 'sepia'
+                                        ? Icons.wb_sunny_outlined
+                                        : Icons.light_mode),
                                 const SizedBox(width: 12),
-                                Text(_isNightMode 
-                                  ? 'Обычный режим' 
-                                  : 'Ночной режим'),
+                                Text(_colorMode == 'night'
+                                    ? 'Ночной режим'
+                                    : _colorMode == 'sepia'
+                                        ? 'Режим Сепия'
+                                        : 'Обычный режим'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'brightness',
+                            child: Row(
+                              children: [
+                                Icon(Icons.brightness_6),
+                                SizedBox(width: 12),
+                                Text('Яркость'),
                               ],
                             ),
                           ),
@@ -709,22 +1108,12 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                             child: Row(
                               children: [
                                 Icon(_isSinglePageMode
-                                  ? Icons.view_stream
-                                  : Icons.view_carousel),
+                                    ? Icons.view_stream
+                                    : Icons.view_carousel),
                                 const SizedBox(width: 12),
                                 Text(_isSinglePageMode
-                                  ? 'Непрерывная прокрутка'
-                                  : 'По страницам'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem(
-                            value: 'share',
-                            child: Row(
-                              children: [
-                                Icon(Icons.share_outlined),
-                                SizedBox(width: 12),
-                                Text('Поделиться'),
+                                    ? 'Непрерывная прокрутка'
+                                    : 'По страницам'),
                               ],
                             ),
                           ),
@@ -736,7 +1125,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
               ),
             ),
           ),
-          
+
           // Bottom Toolbar
           AnimatedSlide(
             duration: const Duration(milliseconds: 200),
@@ -781,19 +1170,20 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                             // История назад
                             IconButton(
                               icon: const Icon(Icons.undo, color: Colors.white),
-                              onPressed: _historyIndex > 0 
-                                ? _navigateBack 
-                                : null,
+                              onPressed:
+                                  _historyIndex > 0 ? _navigateBack : null,
                             ),
                             // Предыдущая страница
                             IconButton(
-                              icon: const Icon(Icons.chevron_left, color: Colors.white),
+                              icon: const Icon(Icons.chevron_left,
+                                  color: Colors.white),
                               onPressed: _currentPage > 1
-                                ? () => _pdfController?.previousPage(
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  )
-                                : null,
+                                  ? () => _pdfController?.previousPage(
+                                        duration:
+                                            const Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                      )
+                                  : null,
                             ),
                             // Номер страницы
                             InkWell(
@@ -819,20 +1209,23 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                             ),
                             // Следующая страница
                             IconButton(
-                              icon: const Icon(Icons.chevron_right, color: Colors.white),
+                              icon: const Icon(Icons.chevron_right,
+                                  color: Colors.white),
                               onPressed: _currentPage < _totalPages
-                                ? () => _pdfController?.nextPage(
-                                    duration: const Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  )
-                                : null,
+                                  ? () => _pdfController?.nextPage(
+                                        duration:
+                                            const Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                      )
+                                  : null,
                             ),
                             // История вперед
                             IconButton(
                               icon: const Icon(Icons.redo, color: Colors.white),
-                              onPressed: _historyIndex < _navigationHistory.length - 1
-                                ? _navigateForward
-                                : null,
+                              onPressed:
+                                  _historyIndex < _navigationHistory.length - 1
+                                      ? _navigateForward
+                                      : null,
                             ),
                           ],
                         ),
@@ -843,7 +1236,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
               ),
             ),
           ),
-          
+
           // Page Indicator (появляется при смене страницы)
           if (_showPageIndicator)
             Positioned(
@@ -871,7 +1264,7 @@ class _PdfReaderScreenState extends State<PdfReaderScreen>
                 ),
               ),
             ),
-          
+
           // Floating Action Button для заметок
           Positioned(
             right: 16,

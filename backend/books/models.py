@@ -86,8 +86,8 @@ class Reservation(models.Model):
         verbose_name='Книга'
     )
     status = models.CharField(
-        max_length=20, 
-        choices=STATUS_CHOICES, 
+        max_length=20,
+        choices=STATUS_CHOICES,
         default='pending',
         verbose_name='Статус бронирования'
     )
@@ -95,6 +95,11 @@ class Reservation(models.Model):
     confirmed_date = models.DateTimeField(blank=True, null=True, verbose_name='Дата подтверждения')
     taken_date = models.DateTimeField(blank=True, null=True, verbose_name='Дата выдачи')
     return_date = models.DateTimeField(blank=True, null=True, verbose_name='Дата возврата')
+
+    # Планируемая дата и время получения книги
+    pickup_date = models.DateField(blank=True, null=True, verbose_name='Планируемая дата получения')
+    pickup_time = models.TimeField(blank=True, null=True, verbose_name='Планируемое время получения')
+
     user_comment = models.TextField(blank=True, null=True, verbose_name='Комментарий пользователя')
     admin_comment = models.TextField(blank=True, null=True, verbose_name='Комментарий администратора')
     

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+
 import '../../services/api_service.dart';
 import '../../models/book.dart';
 import '../../models/genre.dart';
 import '../../widgets/loading_widget.dart';
-import '../books/book_detail_screen.dart';
 
 class ManageBooksScreen extends StatefulWidget {
   const ManageBooksScreen({Key? key}) : super(key: key);
@@ -14,11 +14,12 @@ class ManageBooksScreen extends StatefulWidget {
   State<ManageBooksScreen> createState() => _ManageBooksScreenState();
 }
 
-class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTickerProviderStateMixin {
+class _ManageBooksScreenState extends State<ManageBooksScreen>
+    with SingleTickerProviderStateMixin {
   final _apiService = ApiService();
   final _formKey = GlobalKey<FormState>();
   late TabController _tabController;
-  
+
   final _titleController = TextEditingController();
   final _authorController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -26,19 +27,22 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
   final _isbnController = TextEditingController();
   final _genreNameController = TextEditingController();
   final _genreDescriptionController = TextEditingController();
-  
+
   List<Book> _books = [];
   List<Genre> _genres = [];
   Genre? _selectedGenre;
   String? _selectedStatus;
   Book? _editingBook;
-  
+
+  // NEW: редактирование жанра
+  Genre? _editingGenre;
+
   bool _isLoading = true;
   String? _error;
   bool _isProcessing = false;
   bool _showBookForm = false;
   bool _showGenreForm = false;
-  
+
   String _searchQuery = '';
   String? _filterStatus;
   Genre? _filterGenre;
@@ -76,7 +80,7 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
       if (booksResponse.statusCode == 200 && genresResponse.statusCode == 200) {
         final dynamic booksBody = jsonDecode(booksResponse.body);
         final dynamic genresBody = jsonDecode(genresResponse.body);
-        
+
         List<dynamic> booksData;
         if (booksBody is Map && booksBody.containsKey('results')) {
           booksData = booksBody['results'];
@@ -85,7 +89,7 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
         } else {
           throw Exception('Неверный формат данных книг');
         }
-        
+
         List<dynamic> genresData;
         if (genresBody is Map && genresBody.containsKey('results')) {
           genresData = genresBody['results'];
@@ -114,6 +118,9 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     }
   }
 
+  // -------------------------
+  // BOOKS
+  // -------------------------
   Future<void> _saveBook() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedGenre == null) {
@@ -135,8 +142,8 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
         'description': _descriptionController.text.trim(),
         'genre': _selectedGenre!.id,
         'year_published': int.parse(_yearController.text.trim()),
-        'isbn': _isbnController.text.trim().isNotEmpty 
-            ? _isbnController.text.trim() 
+        'isbn': _isbnController.text.trim().isNotEmpty
+            ? _isbnController.text.trim()
             : null,
         'status': _selectedStatus ?? 'available',
       };
@@ -145,7 +152,8 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
       String successMessage;
 
       if (_editingBook != null) {
-        response = await _apiService.put('/api/books/${_editingBook!.id}/update/', bookData);
+        response = await _apiService.put(
+            '/api/books/${_editingBook!.id}/update/', bookData);
         successMessage = 'Книга обновлена';
       } else {
         response = await _apiService.post('/api/books/create/', bookData);
@@ -155,7 +163,8 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(successMessage), backgroundColor: Colors.green),
+          SnackBar(
+              content: Text(successMessage), backgroundColor: Colors.green),
         );
         _clearBookForm();
         setState(() {
@@ -190,10 +199,11 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
       _isbnController.text = book.isbn ?? '';
       _selectedGenre = _genres.firstWhere(
         (g) => g.id == book.genreId,
-        orElse: () => _genres.first,
+        orElse: () => _genres.isNotEmpty ? _genres.first : _selectedGenre!,
       );
       _selectedStatus = book.status;
       _showBookForm = true;
+      _tabController.animateTo(0);
     });
   }
 
@@ -220,11 +230,13 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     if (confirm != true) return;
 
     try {
-      final response = await _apiService.delete('/api/books/${book.id}/delete/');
+      final response =
+          await _apiService.delete('/api/books/${book.id}/delete/');
       if (response.statusCode == 204) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Книга удалена'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Книга удалена'), backgroundColor: Colors.green),
         );
         _loadData();
       } else {
@@ -253,6 +265,7 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
           'genre': book.genreId,
           'year_published': book.yearPublished,
           'status': newStatus,
+          'isbn': book.isbn,
         },
       );
 
@@ -293,8 +306,15 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     });
   }
 
+  // -------------------------
+  // GENRES (ADD / EDIT / DELETE)
+  // -------------------------
+
   Future<void> _saveGenre() async {
-    if (_genreNameController.text.trim().isEmpty) {
+    final name = _genreNameController.text.trim();
+    final desc = _genreDescriptionController.text.trim();
+
+    if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Введите название жанра'),
@@ -307,18 +327,38 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     setState(() => _isProcessing = true);
 
     try {
-      final response = await _apiService.post('/api/genres/create/', {
-        'name': _genreNameController.text.trim(),
-        'description': _genreDescriptionController.text.trim(),
-      });
+      http.Response response;
+      String okMessage;
 
-      if (response.statusCode == 201) {
+      if (_editingGenre != null) {
+        // UPDATE genre
+        response = await _apiService.put(
+          '/api/genres/${_editingGenre!.id}/update/',
+          {
+            'name': name,
+            'description': desc,
+          },
+        );
+        okMessage = 'Жанр обновлен';
+      } else {
+        // CREATE genre
+        response = await _apiService.post('/api/genres/create/', {
+          'name': name,
+          'description': desc,
+        });
+        okMessage = 'Жанр добавлен';
+      }
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Жанр добавлен'), backgroundColor: Colors.green),
+          SnackBar(content: Text(okMessage), backgroundColor: Colors.green),
         );
         _clearGenreForm();
-        setState(() => _showGenreForm = false);
+        setState(() {
+          _showGenreForm = false;
+          _editingGenre = null;
+        });
         _loadData();
       } else {
         final error = _apiService.handleError(response);
@@ -337,11 +377,88 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     }
   }
 
+  void _editGenre(Genre genre) {
+    setState(() {
+      _editingGenre = genre;
+      _genreNameController.text = genre.name;
+      _genreDescriptionController.text = genre.description ?? '';
+      _showGenreForm = true;
+      _tabController.animateTo(1);
+    });
+  }
+
+  Future<void> _deleteGenre(Genre genre) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удаление жанра'),
+        content: Text('Удалить жанр "${genre.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      final response =
+          await _apiService.delete('/api/genres/${genre.id}/delete/');
+
+      // некоторые API возвращают 204, некоторые 200
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        if (!mounted) return;
+
+        // если выбранный фильтр жанра удалили — сбросим фильтр
+        if (_filterGenre?.id == genre.id) {
+          setState(() => _filterGenre = null);
+        }
+        // если в форме книги был выбран удаленный жанр — сбросим
+        if (_selectedGenre?.id == genre.id) {
+          setState(() => _selectedGenre = null);
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Жанр удален'), backgroundColor: Colors.green),
+        );
+        _loadData();
+      } else {
+        final error = _apiService.handleError(response);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
   void _clearGenreForm() {
     _genreNameController.clear();
     _genreDescriptionController.clear();
+    setState(() => _editingGenre = null);
   }
 
+  // -------------------------
+  // FILTERED BOOKS
+  // -------------------------
   List<Book> get _filteredBooks {
     return _books.where((book) {
       if (_searchQuery.isNotEmpty) {
@@ -351,31 +468,23 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
           return false;
         }
       }
-      if (_filterStatus != null && book.status != _filterStatus) {
+      if (_filterStatus != null && book.status != _filterStatus) return false;
+      if (_filterGenre != null && book.genreId != _filterGenre!.id)
         return false;
-      }
-      if (_filterGenre != null && book.genreId != _filterGenre!.id) {
-        return false;
-      }
       return true;
     }).toList();
   }
 
   String _getStatusText(String status) {
     switch (status) {
-      case 'available': return 'Доступна';
-      case 'reserved': return 'Забронирована';
-      case 'taken': return 'Выдана';
-      default: return 'Неизвестно';
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'available': return Colors.green;
-      case 'reserved': return Colors.orange;
-      case 'taken': return Colors.red;
-      default: return Colors.grey;
+      case 'available':
+        return 'Доступна';
+      case 'reserved':
+        return 'Забронирована';
+      case 'taken':
+        return 'Выдана';
+      default:
+        return 'Неизвестно';
     }
   }
 
@@ -388,7 +497,9 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
           controller: _tabController,
           tabs: [
             Tab(icon: const Icon(Icons.book), text: 'Книги (${_books.length})'),
-            Tab(icon: const Icon(Icons.category), text: 'Жанры (${_genres.length})'),
+            Tab(
+                icon: const Icon(Icons.category),
+                text: 'Жанры (${_genres.length})'),
           ],
         ),
       ),
@@ -399,7 +510,8 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
+                      Icon(Icons.error_outline,
+                          size: 60, color: Colors.red[300]),
                       const SizedBox(height: 16),
                       Text(_error!),
                       const SizedBox(height: 16),
@@ -420,6 +532,9 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     );
   }
 
+  // -------------------------
+  // BOOKS TAB
+  // -------------------------
   Widget _buildBooksTab() {
     return Column(
       children: [
@@ -435,9 +550,11 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
                       decoration: InputDecoration(
                         hintText: 'Поиск книг...',
                         prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
-                      onChanged: (value) => setState(() => _searchQuery = value),
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -459,13 +576,14 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
         if (_showBookForm) _buildBookForm(),
         Expanded(
           child: _filteredBooks.isEmpty
-              ? Center(child: Text('Нет книг'))
+              ? const Center(child: Text('Нет книг'))
               : RefreshIndicator(
                   onRefresh: _loadData,
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _filteredBooks.length,
-                    itemBuilder: (context, index) => _buildBookCard(_filteredBooks[index]),
+                    itemBuilder: (context, index) =>
+                        _buildBookCard(_filteredBooks[index]),
                   ),
                 ),
         ),
@@ -484,72 +602,101 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
       ),
       child: Form(
         key: _formKey,
-        child: Column(
-          children: [
-            TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Название *'),
-              validator: (v) => v == null || v.isEmpty ? 'Введите название' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _authorController,
-              decoration: const InputDecoration(labelText: 'Автор *'),
-              validator: (v) => v == null || v.isEmpty ? 'Введите автора' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(labelText: 'Описание'),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<Genre>(
-              value: _selectedGenre,
-              decoration: const InputDecoration(labelText: 'Жанр *'),
-              items: _genres.map((g) => DropdownMenuItem(value: g, child: Text(g.name))).toList(),
-              onChanged: (v) => setState(() => _selectedGenre = v),
-              validator: (v) => v == null ? 'Выберите жанр' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _yearController,
-              decoration: const InputDecoration(labelText: 'Год *'),
-              keyboardType: TextInputType.number,
-              validator: (v) {
-                if (v == null || v.isEmpty) return 'Введите год';
-                final year = int.tryParse(v);
-                if (year == null || year < 1000 || year > DateTime.now().year) {
-                  return 'Неверный год';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () {
-                    _clearBookForm();
-                    setState(() => _showBookForm = false);
-                  },
-                  child: const Text('Отмена'),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: _isProcessing ? null : _saveBook,
-                  child: _isProcessing
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Сохранить'),
-                ),
-              ],
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'Название *'),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Введите название' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _authorController,
+                decoration: const InputDecoration(labelText: 'Автор *'),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Введите автора' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(labelText: 'Описание'),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<Genre>(
+                value: _selectedGenre,
+                decoration: const InputDecoration(labelText: 'Жанр *'),
+                items: _genres
+                    .map((g) => DropdownMenuItem(value: g, child: Text(g.name)))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedGenre = v),
+                validator: (v) => v == null ? 'Выберите жанр' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _yearController,
+                decoration: const InputDecoration(labelText: 'Год *'),
+                keyboardType: TextInputType.number,
+                validator: (v) {
+                  if (v == null || v.isEmpty) return 'Введите год';
+                  final year = int.tryParse(v);
+                  if (year == null ||
+                      year < 1000 ||
+                      year > DateTime.now().year) {
+                    return 'Неверный год';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _isbnController,
+                decoration:
+                    const InputDecoration(labelText: 'ISBN (опционально)'),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedStatus,
+                decoration: const InputDecoration(labelText: 'Статус'),
+                items: const [
+                  DropdownMenuItem(value: 'available', child: Text('Доступна')),
+                  DropdownMenuItem(
+                      value: 'reserved', child: Text('Забронирована')),
+                  DropdownMenuItem(value: 'taken', child: Text('Выдана')),
+                ],
+                onChanged: (v) => setState(() => _selectedStatus = v),
+                hint: const Text('Выберите статус'),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isProcessing
+                        ? null
+                        : () {
+                            _clearBookForm();
+                            setState(() => _showBookForm = false);
+                          },
+                    child: const Text('Отмена'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _isProcessing ? null : _saveBook,
+                    child: _isProcessing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Text(_editingBook != null ? 'Обновить' : 'Сохранить'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -559,7 +706,8 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
-        title: Text(book.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(book.title,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(book.author),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -578,6 +726,9 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
     );
   }
 
+  // -------------------------
+  // GENRES TAB
+  // -------------------------
   Widget _buildGenresTab() {
     return Column(
       children: [
@@ -587,7 +738,10 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Управление жанрами', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Управление жанрами',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               ElevatedButton.icon(
                 icon: Icon(_showGenreForm ? Icons.close : Icons.add),
                 label: Text(_showGenreForm ? 'Отмена' : 'Добавить'),
@@ -601,51 +755,115 @@ class _ManageBooksScreenState extends State<ManageBooksScreen> with SingleTicker
             ],
           ),
         ),
-        if (_showGenreForm)
-          Container(
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.green[50],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.green[200]!),
-            ),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _genreNameController,
-                  decoration: const InputDecoration(labelText: 'Название жанра *'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _genreDescriptionController,
-                  decoration: const InputDecoration(labelText: 'Описание'),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _isProcessing ? null : _saveGenre,
-                  child: const Text('Добавить'),
-                ),
-              ],
-            ),
-          ),
+        if (_showGenreForm) _buildGenreForm(),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _genres.length,
-            itemBuilder: (context, index) {
-              final genre = _genres[index];
-              return Card(
-                child: ListTile(
-                  leading: const Icon(Icons.category),
-                  title: Text(genre.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: genre.description != null ? Text(genre.description!) : null,
-                ),
-              );
-            },
+          child: RefreshIndicator(
+            onRefresh: _loadData,
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _genres.length,
+              itemBuilder: (context, index) {
+                final genre = _genres[index];
+                return Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.category),
+                    title: Text(genre.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: (genre.description != null &&
+                            genre.description!.isNotEmpty)
+                        ? Text(genre.description!)
+                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Редактировать',
+                          icon: const Icon(Icons.edit, color: Colors.orange),
+                          onPressed:
+                              _isProcessing ? null : () => _editGenre(genre),
+                        ),
+                        IconButton(
+                          tooltip: 'Удалить',
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed:
+                              _isProcessing ? null : () => _deleteGenre(genre),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildGenreForm() {
+    final isEdit = _editingGenre != null;
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.green[200]!),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(isEdit ? Icons.edit : Icons.add, color: Colors.green[800]),
+              const SizedBox(width: 8),
+              Text(
+                isEdit ? 'Редактирование жанра' : 'Добавление жанра',
+                style:
+                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _genreNameController,
+            decoration: const InputDecoration(labelText: 'Название жанра *'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _genreDescriptionController,
+            decoration: const InputDecoration(labelText: 'Описание'),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: _isProcessing
+                    ? null
+                    : () {
+                        _clearGenreForm();
+                        setState(() {
+                          _showGenreForm = false;
+                        });
+                      },
+                child: const Text('Отмена'),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton(
+                onPressed: _isProcessing ? null : _saveGenre,
+                child: _isProcessing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isEdit ? 'Обновить' : 'Добавить'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
